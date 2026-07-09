@@ -48,25 +48,19 @@ SETTINGS_MSG = """⚙️ **الإعدادات v4.0**
 def build_cookies():
     cookie_file = "/tmp/dl/cookies.txt"
     
-    yt_default = json.dumps([{"name":"VISITOR_PRIVACY_METADATA","value":"CgJJURIEGgAgXA%3D%3D","domain":".youtube.com","path":"/","secure":True,"expirationDate":1799114044},{"name":"YSC","value":"U4xbpyeEGmk","domain":".youtube.com","path":"/","secure":True},{"name":"VISITOR_INFO1_LIVE","value":"v6N_ZfSDZ80","domain":".youtube.com","path":"/","secure":True,"expirationDate":1799114044},{"name":"GPS","value":"1","domain":".youtube.com","path":"/","secure":True,"expirationDate":1783563752}])
-    fb_default = json.dumps([{"name":"datr","value":"7P9Oahnuht8EWp1SSmbxgje-","domain":".facebook.com","path":"/","secure":True,"expirationDate":1818122220},{"name":"c_user","value":"61551071541200","domain":".facebook.com","path":"/","secure":True,"expirationDate":1815098497},{"name":"xs","value":"40%3AhYeF5Yk9Ffcp8Q%3A2%3A1783562494%3A-1%3A-1","domain":".facebook.com","path":"/","secure":True,"expirationDate":1815098497},{"name":"fr","value":"0hKK5CR06Yy1DLtw6.AWe9HNOvMAW6doQDUIunTq5jp_RCnj4Hlqe1Jq4L4tJpl0RI3FA.BqTv_s..AAA.0.0.BqTwEN.AWc7aegISyFnRoOLRQx28Vy5xfM","domain":".facebook.com","path":"/","secure":True,"expirationDate":1791338510}])
-    tw_default = json.dumps([{"name":"auth_token","value":"76a0fa722ef3e21008fc7da816cd433c098fae94","domain":".x.com","path":"/","secure":True,"expirationDate":1815098930},{"name":"ct0","value":"9382e5d47ada2e59528c9a735858ddc121c72059be19d7a25145f10ed6189f408d445ecdb843aabcf273363d7ebe9db4d0cb7c6194afab63a66de126a8440fd109ece80424e92db9e9aa955cc1076dc3","domain":".x.com","path":"/","secure":True,"expirationDate":1818122931},{"name":"twid","value":"u%3D2075039250261643264","domain":".x.com","path":"/","secure":True,"expirationDate":1815098987}])
+    yt_default = '[{"name":"VISITOR_PRIVACY_METADATA","value":"CgJJURIEGgAgXA%3D%3D","domain":".youtube.com","path":"/","secure":true,"expirationDate":1799114044},{"name":"YSC","value":"U4xbpyeEGmk","domain":".youtube.com","path":"/","secure":true},{"name":"VISITOR_INFO1_LIVE","value":"v6N_ZfSDZ80","domain":".youtube.com","path":"/","secure":true,"expirationDate":1799114044},{"name":"GPS","value":"1","domain":".youtube.com","path":"/","secure":true,"expirationDate":1783563752}]'
+    fb_default = '[{"name":"datr","value":"7P9Oahnuht8EWp1SSmbxgje-","domain":".facebook.com","path":"/","secure":true,"expirationDate":1818122220},{"name":"c_user","value":"61551071541200","domain":".facebook.com","path":"/","secure":true,"expirationDate":1815098497},{"name":"xs","value":"40%3AhYeF5Yk9Ffcp8Q%3A2%3A1783562494%3A-1%3A-1","domain":".facebook.com","path":"/","secure":true,"expirationDate":1815098497}]'
+    tw_default = '[{"name":"auth_token","value":"76a0fa722ef3e21008fc7da816cd433c098fae94","domain":".x.com","path":"/","secure":true,"expirationDate":1815098930},{"name":"ct0","value":"9382e5d47ada2e59528c9a735858ddc121c72059be19d7a25145f10ed6189f408d445ecdb843aabcf273363d7ebe9db4d0cb7c6194afab63a66de126a8440fd109ece80424e92db9e9aa955cc1076dc3","domain":".x.com","path":"/","secure":true,"expirationDate":1818122931}]'
     
     with open(cookie_file, 'w') as f:
         f.write("# Netscape HTTP Cookie File\n")
-        
-        for key, domain in [("YT_COOKIES", ".youtube.com"), ("FB_COOKIES", ".facebook.com"), ("TW_COOKIES", ".x.com")]:
-            if key == "YT_COOKIES": data = os.environ.get(key, yt_default)
-            elif key == "FB_COOKIES": data = os.environ.get(key, fb_default)
-            else: data = os.environ.get(key, tw_default)
-            
+        for key, domain, default in [("YT_COOKIES", ".youtube.com", yt_default), ("FB_COOKIES", ".facebook.com", fb_default), ("TW_COOKIES", ".x.com", tw_default)]:
             try:
-                for c in json.loads(data):
+                for c in json.loads(os.environ.get(key, default)):
                     sec = "TRUE" if c.get("secure") else "FALSE"
                     exp = str(int(c.get("expirationDate", 0))) if c.get("expirationDate") else "0"
                     f.write(f"{c.get('domain', domain)}\tTRUE\t{c.get('path','/')}\t{sec}\t{exp}\t{c['name']}\t{c['value']}\n")
             except: pass
-    
     return cookie_file
 
 COOKIES = build_cookies()
@@ -91,6 +85,8 @@ def ac(qid, txt, alert=False):
 
 def download(url, quality="480", audio_only=False):
     fmt = 'bestaudio/best' if audio_only else f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+    
+    # إعدادات أساسية
     opts = {
         'outtmpl': '/tmp/dl/%(title).50s.%(ext)s',
         'format': fmt,
@@ -100,6 +96,22 @@ def download(url, quality="480", audio_only=False):
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         'http_headers': {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9'}
     }
+    
+    # إعدادات خاصة بفيسبوك
+    if 'facebook.com' in url.lower() or 'fb.com' in url.lower() or 'fb.watch' in url.lower():
+        opts['extractor_args'] = {'facebook': {'format': 'browser'}}
+        opts['user_agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'
+        opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'
+    
+    # إعدادات خاصة بانستغرام
+    if 'instagram.com' in url.lower():
+        opts['extractor_args'] = {'instagram': {'api': 'web'}}
+    
+    # إعدادات خاصة بتويتر
+    if 'twitter.com' in url.lower() or 'x.com' in url.lower():
+        opts['user_agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'
+        opts['http_headers']['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'
+    
     if audio_only:
         opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}]
     

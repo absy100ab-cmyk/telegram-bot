@@ -10,7 +10,7 @@ session.headers.update({"User-Agent": "Mozilla/5.0"})
 
 START_MSG = "👋 أهلاً بك!\nأرسل رابط الفيديو للتحميل مباشرةً.\n\n📱 المنصات: يوتيوب | تيك توك | انستغرام | فيسبوك | بنترست\n\n👨‍💻 المالك: @B43lB"
 HELP_MSG = "📥 أرسل رابط الفيديو\n🎥 اختر الجودة المناسبة\n🎵 أو اختر تحميل كملف صوتي\n\n👨‍💻 @B43lB"
-ABOUT_MSG = "🤖 بوت التحميل v4.6 المستقر\n🔒 آمن وسريع ويعمل بدون توقف\n👨‍💻 @B43lB"
+ABOUT_MSG = "🤖 بوت التحميل v4.7 المستقر\n🔒 آمن وسريع ويعمل بدون توقف\n👨‍💻 @B43lB"
 SETTINGS_MSG = "⚙️ الإعدادات الحالية\n📦 حد الملفات: 50MB\n🔐 نظام الكوكيز: مفعّل بنجاح"
 
 def build_cookies():
@@ -77,7 +77,7 @@ def dl(url, quality="480", is_video=True, is_playlist=False):
         except Exception as e: return None, str(e)[:200]
 
     if is_video:
-        fmt = f"best[height<={quality}][hasaudio]/best[height<={quality}]/best"
+        fmt = f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best"
     else:
         fmt = "bestaudio/best"
 

@@ -23,7 +23,6 @@ ABOUT_MSG = """🤖 بوت التحميل v5.0
 
 SETTINGS_MSG = """⚙️ الجودة: 144p-1080p | الصوت: MP3"""
 
-# كوكيز بسيطة
 COOKIES_FILE = "/tmp/dl/cookies.txt"
 with open(COOKIES_FILE, 'w') as f:
     f.write("# Netscape HTTP Cookie File\n")
@@ -49,7 +48,14 @@ def ac(qid, txt, alert=False):
     except: pass
 
 def download(url, quality="480", audio=False):
-    fmt = 'bestaudio/best' if audio else f'best[height<={quality}]/best'
+    # صيغة خاصة لكل منصة
+    if audio:
+        fmt = 'bestaudio/best'
+    elif 'pinterest.com' in url.lower() or 'pin.it' in url.lower():
+        fmt = 'best'
+    else:
+        fmt = f'best[height<={quality}]/best'
+    
     opts = {
         'outtmpl': '/tmp/dl/%(title).50s.%(ext)s',
         'format': fmt,
@@ -72,7 +78,7 @@ def download(url, quality="480", audio=False):
         path = ydl.prepare_filename(info)
         if not os.path.exists(path):
             base = os.path.splitext(path)[0]
-            exts = ['mp3'] if audio else ['mp4','mkv','webm']
+            exts = ['mp3'] if audio else ['mp4','mkv','webm','mov']
             for e in exts:
                 if os.path.exists(f"{base}.{e}"): path = f"{base}.{e}"; break
         if os.path.exists(path): return path, info.get('title','')

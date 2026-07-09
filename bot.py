@@ -7,6 +7,7 @@ offset = 0
 urls = {}
 os.makedirs("/tmp/dl", exist_ok=True)
 session = requests.Session()
+session.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"})
 
 START_MSG = """👋 أهلاً بك!
 📩 أرسل رابط الفيديو للتحميل.
@@ -14,11 +15,10 @@ START_MSG = """👋 أهلاً بك!
 📱 يوتيوب | تيك توك | انستغرام | تويتر | فيسبوك | بنترست
 المالك ✓ @B43lB"""
 
-HELP_MSG = """🆘 أرسل رابط الفيديو ثم اختر الجودة أو الصوت.
-⚡ /start | /help | /about | /settings"""
+HELP_MSG = """🆘 أرسل رابط الفيديو ثم اختر الجودة أو الصوت."""
 
-ABOUT_MSG = """🤖 بوت التحميل v5.0
-🎥 144p - 1080p | 🎵 MP3
+ABOUT_MSG = """🤖 بوت التحميل - الإصدار النهائي
+🎥 144p - 1080p | 🎵 MP3 | 📌 بنترست
 👨‍💻 @B43lB"""
 
 SETTINGS_MSG = """⚙️ الجودة: 144p-1080p | الصوت: MP3"""
@@ -27,6 +27,7 @@ COOKIES_FILE = "/tmp/dl/cookies.txt"
 with open(COOKIES_FILE, 'w') as f:
     f.write("# Netscape HTTP Cookie File\n")
     f.write(".youtube.com\tTRUE\t/\tTRUE\t0\tCONSENT\tYES+cb\n")
+    f.write(".youtube.com\tTRUE\t/\tTRUE\t0\tGPS\t1\n")
 
 def sm(cid, txt, kb=None):
     try:
@@ -46,68 +47,115 @@ def ac(qid, txt, alert=False):
     try: session.post(f"{API}/answerCallbackQuery", json={"callback_query_id": qid, "text": txt, "show_alert": alert}, timeout=2)
     except: pass
 
-def download_pinterest(url):
-    """تحميل مباشر من Pinterest"""
-    try:
-        h = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'}
-        r = session.get(url, headers=h, timeout=15)
-        # فيديو
-        v = re.findall(r'"url":"(https://v1\.pinimg\.com/videos/.*?\.mp4)"', r.text)
-        if not v:
-            v = re.findall(r'"(https://v1\.pinimg\.com/videos/.*?\.mp4)"', r.text)
-        if v:
-            vurl = v[0].replace('\\', '')
-            path = f"/tmp/dl/pin_{int(time.time())}.mp4"
-            r2 = session.get(vurl, headers=h, timeout=60)
-            with open(path, 'wb') as f: f.write(r2.content)
-            if os.path.exists(path) and os.path.getsize(path) > 10000:
-                return path, "Pinterest فيديو"
-        # صورة
-        img = re.findall(r'"(https://i\.pinimg\.com/originals/.*?\.(jpg|png|jpeg))"', r.text)
-        if img:
-            iurl = img[0][0].replace('\\', '')
-            path = f"/tmp/dl/pin_{int(time.time())}.{img[0][1]}"
-            r2 = session.get(iurl, headers=h, timeout=60)
-            with open(path, 'wb') as f: f.write(r2.content)
-            if os.path.exists(path): return path, "Pinterest صورة"
-        return None, "لم يتم العثور على محتوى"
-    except Exception as e:
-        return None, str(e)[:200]
+def is_image(path):
+    return path.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))
 
-def download(url, quality="480", audio=False):
-    # Pinterest خاص
+def is_video(path):
+    return path.lower().endswith(('.mp4', '.mkv', '.webm', '.mov'))
+
+def download_media(url, quality="720", audio_only=False):
+    # === Pinterest ===
     if 'pinterest.com' in url.lower() or 'pin.it' in url.lower():
-        return download_pinterest(url)
+        try:
+            h = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'}
+            r = session.get(url, headers=h, timeout=15)
+            html = r.text
+            
+            # فيديو
+            vids = re.findall(r'"(https?://[^"]*?\.mp4[^"]*)"', html)
+            if vids:
+                vurl = vids[0].replace('\\', '').split('?')[0]
+                path = f"/tmp/dl/pinvid_{int(time.time())}.mp4"
+                r2 = session.get(vurl, headers=h, timeout=120)
+                with open(path, 'wb') as f: f.write(r2.content)
+                if os.path.exists(path) and os.path.getsize(path) > 50000:
+                    return path, "فيديو Pinterest"
+            
+            # صورة أصلية
+            imgs = re.findall(r'"(https?://i\.pinimg\.com/originals/[^"]*\.(jpg|png|jpeg)[^"]*)"', html)
+            if imgs:
+                iurl = imgs[0][0].replace('\\', '').split('?')[0]
+                ext = imgs[0][1]
+                path = f"/tmp/dl/pinimg_{int(time.time())}.{ext}"
+                r2 = session.get(iurl, headers=h, timeout=60)
+                with open(path, 'wb') as f: f.write(r2.content)
+                if os.path.exists(path): return path, "صورة Pinterest"
+            
+            return None, "لم يتم العثور على محتوى"
+        except Exception as e:
+            return None, str(e)[:200]
     
-    fmt = 'bestaudio/best' if audio else f'best[height<={quality}]/best'
+    # === باقي المنصات ===
+    if audio_only:
+        fmt = 'bestaudio/best'
+        merge = None
+    else:
+        fmt = f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best[height<={quality}]/best'
+        merge = 'mp4'
     
     opts = {
-        'outtmpl': '/tmp/dl/%(title).50s.%(ext)s',
+        'outtmpl': '/tmp/dl/%(title).60s.%(ext)s',
         'format': fmt,
-        'merge_output_format': None if audio else 'mp4',
-        'quiet': True, 'no_warnings': True, 'nocheckcertificate': True,
-        'retries': 5, 'socket_timeout': 60, 'cookiefile': COOKIES_FILE,
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)'
+        'merge_output_format': merge,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'retries': 10,
+        'fragment_retries': 10,
+        'socket_timeout': 90,
+        'cookiefile': COOKIES_FILE,
+        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8'
+        }
     }
-    if audio:
-        opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}]
+    
+    if audio_only:
+        opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
     
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-        if not info: return None, "فشل"
+        
+        if not info: return None, "فشل التحميل"
+        
+        title = info.get('title', 'بدون عنوان')
         path = ydl.prepare_filename(info)
+        
+        # العثور على الملف
         if not os.path.exists(path):
             base = os.path.splitext(path)[0]
-            for e in (['mp3'] if audio else ['mp4','mkv','webm','mov']):
-                if os.path.exists(f"{base}.{e}"): path = f"{base}.{e}"; break
+            if audio_only:
+                if os.path.exists(base + '.mp3'): path = base + '.mp3'
+                elif os.path.exists(base + '.m4a'): path = base + '.m4a'
+            else:
+                for ext in ['.mp4', '.mkv', '.webm', '.mov']:
+                    if os.path.exists(base + ext): path = base + ext; break
+        
         if not os.path.exists(path):
-            files = sorted([f"/tmp/dl/{x}" for x in os.listdir('/tmp/dl') if x.endswith(('.mp4','.mkv','.webm','.mp3'))], key=os.path.getmtime, reverse=True)
-            if files: path = files[0]
-        if os.path.exists(path): return path, info.get('title','')
-        return None, "ملف غير موجود"
+            dl_dir = '/tmp/dl'
+            files = [f for f in os.listdir(dl_dir) if f.endswith(('.mp4','.mkv','.webm','.mov','.mp3','.m4a'))]
+            if files:
+                latest = max(files, key=lambda x: os.path.getmtime(f"{dl_dir}/{x}"))
+                path = f"{dl_dir}/{latest}"
+        
+        if os.path.exists(path):
+            return path, title
+        return None, "الملف غير موجود"
+        
     except Exception as e:
-        return None, str(e)[:200]
+        err = str(e)
+        if "format" in err.lower() and "not available" in err.lower():
+            return None, "الجودة غير متاحة - اختر جودة أقل"
+        if "login" in err.lower():
+            return None, "يتطلب تسجيل دخول"
+        if "private" in err.lower():
+            return None, "المحتوى خاص"
+        if "not found" in err.lower() or "404" in err:
+            return None, "الرابط غير موجود"
+        return None, err[:300]
 
 def process(u):
     if "callback_query" in u:
@@ -118,76 +166,127 @@ def process(u):
         
         if d.startswith("q_"):
             _, key, quality = d.split("_")
-            if key not in urls: ac(q["id"], "انتهت"); return
-            ac(q["id"], "تحميل...")
-            em(cid, mid, f"⏳ تحميل {quality}p...")
-            path, title = download(urls[key], quality)
+            if key not in urls:
+                ac(q["id"], "انتهت الجلسة - أرسل الرابط مجدداً")
+                return
+            
+            ac(q["id"], f"⏳ تحميل {quality}p...")
+            em(cid, mid, f"⏳ جاري تحميل الفيديو بدقة {quality}p...")
+            
+            path, title = download_media(urls[key], quality)
+            
             if path and os.path.exists(path):
-                size = os.path.getsize(path)//(1024*1024)
-                if path.endswith(('.jpg','.png','.jpeg')):
+                size_mb = os.path.getsize(path) // (1024 * 1024)
+                
+                if is_image(path):
+                    # إرسال كصورة
                     try:
-                        with open(path,'rb') as f:
-                            session.post(f"{API}/sendPhoto", data={"chat_id":cid,"caption":f"✅ {title}"}, files={"photo":f}, timeout=300)
-                        em(cid, mid, f"✅ {title}")
-                    except: em(cid, mid, "فشل")
-                elif size > 50:
-                    em(cid, mid, f"⚠️ كبير ({size}MB)")
+                        with open(path, 'rb') as f:
+                            session.post(f"{API}/sendPhoto", data={"chat_id": cid, "caption": f"✅ {title}"}, files={"photo": f}, timeout=300)
+                        em(cid, mid, f"✅ {title}\n📷 صورة")
+                    except:
+                        em(cid, mid, "❌ فشل إرسال الصورة")
+                
+                elif is_video(path):
+                    if size_mb > 50:
+                        em(cid, mid, f"⚠️ حجم الفيديو {size_mb}MB\nالحد الأقصى 50MB\nجرب جودة أقل أو صوت")
+                    else:
+                        try:
+                            with open(path, 'rb') as f:
+                                session.post(f"{API}/sendVideo", data={
+                                    "chat_id": cid,
+                                    "supports_streaming": True,
+                                    "caption": f"✅ {title}\n📦 {size_mb}MB | 🎥 {quality}p",
+                                    "width": 1920,
+                                    "height": 1080
+                                }, files={"video": f}, timeout=300)
+                            em(cid, mid, f"✅ {title}\n📦 {size_mb}MB | {quality}p")
+                        except:
+                            em(cid, mid, "❌ فشل إرسال الفيديو")
+                
                 else:
+                    # ملف آخر
                     try:
-                        with open(path,'rb') as f:
-                            session.post(f"{API}/sendVideo", data={"chat_id":cid,"supports_streaming":True,"caption":f"✅ {title}\n{size}MB | {quality}p"}, files={"video":f}, timeout=300)
+                        with open(path, 'rb') as f:
+                            session.post(f"{API}/sendDocument", data={"chat_id": cid, "caption": f"✅ {title}"}, files={"document": f}, timeout=300)
                         em(cid, mid, f"✅ {title}")
-                    except: em(cid, mid, "فشل")
+                    except:
+                        em(cid, mid, "❌ فشل الإرسال")
+                
                 try: os.remove(path)
                 except: pass
-            else: em(cid, mid, f"❌ {title}")
+            else:
+                em(cid, mid, f"❌ {title}")
         
         elif d.startswith("a_"):
             key = d[2:]
-            if key not in urls: ac(q["id"], "انتهت"); return
-            ac(q["id"], "تحميل صوت...")
-            em(cid, mid, "⏳ تحميل الصوت...")
-            path, title = download(urls[key], audio=True)
+            if key not in urls:
+                ac(q["id"], "انتهت الجلسة")
+                return
+            
+            ac(q["id"], "⏳ تحميل الصوت...")
+            em(cid, mid, "⏳ جاري تحميل الصوت...")
+            
+            path, title = download_media(urls[key], audio_only=True)
+            
             if path and os.path.exists(path):
+                size_mb = os.path.getsize(path) // (1024 * 1024)
                 try:
-                    with open(path,'rb') as f:
-                        session.post(f"{API}/sendAudio", data={"chat_id":cid,"caption":f"🎵 {title}"}, files={"audio":f}, timeout=300)
-                    em(cid, mid, f"✅ {title}")
-                except: em(cid, mid, "فشل")
+                    with open(path, 'rb') as f:
+                        session.post(f"{API}/sendAudio", data={
+                            "chat_id": cid,
+                            "caption": f"🎵 {title}\n📦 {size_mb}MB | MP3 192kbps",
+                            "title": title
+                        }, files={"audio": f}, timeout=300)
+                    em(cid, mid, f"✅ {title}\n🎵 MP3 | {size_mb}MB")
+                except:
+                    em(cid, mid, "❌ فشل إرسال الصوت")
                 try: os.remove(path)
                 except: pass
-            else: em(cid, mid, f"❌ {title}")
+            else:
+                em(cid, mid, f"❌ {title}")
     
     if "message" in u and "text" in u["message"]:
         m = u["message"]
         cid = m["chat"]["id"]
         txt = m["text"].strip()
-        if txt == "/start": sm(cid, START_MSG)
-        elif txt == "/help": sm(cid, HELP_MSG)
-        elif txt == "/about": sm(cid, ABOUT_MSG)
-        elif txt == "/settings": sm(cid, SETTINGS_MSG)
+        
+        if txt == "/start":
+            sm(cid, START_MSG)
+        elif txt == "/help":
+            sm(cid, HELP_MSG)
+        elif txt == "/about":
+            sm(cid, ABOUT_MSG)
+        elif txt == "/settings":
+            sm(cid, SETTINGS_MSG)
         elif txt.startswith("http"):
             key = hashlib.md5(txt.encode()).hexdigest()[:8]
             urls[key] = txt
+            
             kb = json.dumps({"inline_keyboard": [
                 [{"text": "🎥 144p", "callback_data": f"q_{key}_144"}, {"text": "🎥 360p", "callback_data": f"q_{key}_360"}],
                 [{"text": "🎥 480p", "callback_data": f"q_{key}_480"}, {"text": "🎥 720p", "callback_data": f"q_{key}_720"}],
                 [{"text": "🎥 1080p", "callback_data": f"q_{key}_1080"}],
                 [{"text": "🎵 صوت MP3", "callback_data": f"a_{key}"}]
             ]})
-            sm(cid, "✅ تم استلام الرابط\nاختر:", kb)
+            
+            sm(cid, "✅ تم استلام الرابط\n\nاختر الجودة أو الصوت:", kb)
 
 def run():
     global offset
-    print("⚡ v5.0...")
+    print("⚡ البوت يعمل...")
     while True:
         try:
-            r = session.get(f"{API}/getUpdates", params={"offset":offset+1,"timeout":15}, timeout=20)
-            if r.status_code != 200: time.sleep(2); continue
+            r = session.get(f"{API}/getUpdates", params={"offset": offset + 1, "timeout": 15}, timeout=20)
+            if r.status_code != 200:
+                time.sleep(2)
+                continue
             for u in r.json().get("result", []):
                 offset = u["update_id"]
                 process(u)
-        except: time.sleep(3)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(3)
 
 if __name__ == "__main__":
     run()

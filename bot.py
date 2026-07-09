@@ -108,7 +108,6 @@ def ac(qid, txt, alert=False):
     except: pass
 
 def dl(url, quality="480", is_video=True, is_playlist=False):
-    # إذا كانت قائمة تشغيل، نسحب معلومات الروابط فقط بدون تحميل
     if is_playlist:
         opts_pl = {
             'extract_flat': True,
@@ -125,7 +124,6 @@ def dl(url, quality="480", is_video=True, is_playlist=False):
         except Exception as e:
             return None, str(e)[:200]
 
-    # نطلب الفيديو الجاهز والمدمج مباشرة لتجنب مشكلة الـ ffmpeg
     if is_video:
         fmt = f'best[height<={quality}]/best'
     else:
@@ -153,7 +151,6 @@ def dl(url, quality="480", is_video=True, is_playlist=False):
         path = ydl.prepare_filename(info)
         if not os.path.exists(path):
             base = os.path.splitext(path)[0]
-            # دعم جميع الصيغ لتجنب أخطاء عدم العثور على الملف
             exts = ['mp4','mkv','webm','m4a','mp3','ogg','wav']
             for ext in exts:
                 if os.path.exists(f"{base}.{ext}"): path = f"{base}.{ext}"; break
@@ -188,4 +185,116 @@ def process(u):
             parts = d.split("_")
             key = parts[1]
             quality = parts[2]
-            if key not in urls: ac(q["
+            if key not in urls:
+                ac(q["id"], "انتهت الجلسة", True)
+                return
+            url = urls[key]
+            is_pl = "playlist" in url.lower() or "list=" in url.lower()
+            
+            ac(q["id"], f"تجهيز الطلب...")
+            
+            if is_pl:
+                em(cid, mid, "⏳ جاري فحص قائمة التشغيل وسحب الروابط...")
+                status, entries = dl(url, quality, True, is_playlist=True)
+                if status == "PLAYLIST_DATA":
+                    total = len(entries)
+                    em(cid, mid, f"📋 تم الفحص! القائمة تحتوي على {total} فيديو.\n⏳ جاري تحميل وإرسال الفيديوهات بالتتابع...")
+                    
+                    for index, entry in enumerate(entries, 1):
+                        v_url = entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}"
+                        em(cid, mid, f"⏳ جاري معالجة الفيديو [{index}/{total}]:\n{entry.get('title', 'بدون عنوان')}")
+                        
+                        v_path, v_title = dl(v_url, quality, True, is_playlist=False)
+                        if v_path and os.path.exists(v_path):
+                            v_size = os.path.getsize(v_path)//(1024*1024)
+                            if v_size <= 50:
+                                try:
+                                    with open(v_path, 'rb') as f:
+                                        session.post(f"{API}/sendVideo", data={"chat_id": cid, "supports_streaming": True, "caption": f"🎬 [{index}/{total}] {v_title}\n📦 {v_size}MB | {quality}p"}, files={"video": f}, timeout=300)
+                                except: pass
+                            try: os.remove(v_path)
+                            except: pass
+                    em(cid, mid, f"✅ اكتمل تحميل وإرسال قائمة التشغيل بالكامل ({total} فيديو) بنجاح!")
+                else:
+                    em(cid, mid, f"❌ {entries}")
+            else:
+                em(cid, mid, f"⏳ تحميل فيديو {quality}p...")
+                path, title = dl(url, quality, True, is_playlist=False)
+                if path and os.path.exists(path):
+                    size = os.path.getsize(path)//(1024*1024)
+                    if size > 50:
+                        em(cid, mid, f"⚠️ كبير ({size}MB)\nجرب جودة أقل")
+                    else:
+                        try:
+                            with open(path,'rb') as f:
+                                session.post(f"{API}/sendVideo", data={"chat_id":cid,"supports_streaming":True,"caption":f"✅ {title}\n📦 {size}MB | {quality}p"}, files={"video":f}, timeout=300)
+                            em(cid, mid, f"✅ {title}\n{quality}p")
+                        except: em(cid, mid, "فشل الإرسال")
+                    try: os.remove(path)
+                    except: pass
+                else: em(cid, mid, f"❌ {title}")
+        
+        elif d.startswith("a_"):
+            key = d[2:]
+            if key not in urls:
+                ac(q["id"], "انتهت الجلسة", True)
+                return
+            ac(q["id"], "تحميل صوت...")
+            em(cid, mid, "⏳ تحميل الصوت...")
+            path, title = dl(urls[key], "480", False)
+            if path and os.path.exists(path):
+                try:
+                    with open(path,'rb') as f:
+                        session.post(f"{API}/sendAudio", data={"chat_id":cid,"caption":f"🎵 {title}"}, files={"audio":f}, timeout=300)
+                    em(cid, mid, f"✅ {title}")
+                except: em(cid, mid, "فشل الإرسال")
+                try: os.remove(path)
+                except: pass
+            else: em(cid, mid, f"❌ {title}")
+    
+    if "message" in u and "text" in u["message"]:
+        m = u["message"]
+        cid = m["chat"]["id"]
+        txt = m["text"].strip()
+        
+        if txt == "/start": sm(cid, START_MSG)
+        elif txt == "/help": sm(cid, HELP_MSG)
+        elif txt == "/about": sm(cid, ABOUT_MSG)
+        elif txt == "/settings": sm(cid, SETTINGS_MSG)
+        elif txt.startswith("http"):
+            key = hashlib.md5(txt.encode()).hexdigest()[:8]
+            urls[key] = txt
+            save_urls()
+            
+            is_pl = "playlist" in txt.lower() or "list=" in txt.lower()
+            
+            kb = json.dumps({"inline_keyboard": [
+                [{"text": "🎥 144p", "callback_data": f"q_{key}_144"}, {"text": "🎥 360p", "callback_data": f"q_{key}_360"}],
+                [{"text": "🎥 480p", "callback_data": f"q_{key}_480"}, {"text": "🎥 720p", "callback_data": f"q_{key}_720"}],
+                [{"text": "🎥 1080p", "callback_data": f"q_{key}_1080"}],
+                [{"text": "🎵 صوت", "callback_data": f"a_{key}"}]
+            ]})
+            
+            msg = "✅ **تم استلام الرابط**"
+            if is_pl: msg += "\n📋 **تم اكتشاف قائمة تشغيل!**"
+            msg += "\n\n**اختر الجودة أو الصوت:**"
+            
+            sm(cid, msg, kb)
+
+def run():
+    global offset
+    load_urls()
+    print("⚡ البوت v4.0 يعمل...")
+    while True:
+        try:
+            r = session.get(f"{API}/getUpdates", params={"offset":offset+1,"timeout":15}, timeout=20)
+            if r.status_code != 200: time.sleep(2); continue
+            for u in r.json().get("result", []):
+                offset = u["update_id"]
+                process(u)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(3)
+
+if __name__ == "__main__":
+    run()

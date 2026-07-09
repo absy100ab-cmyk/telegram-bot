@@ -1,7 +1,7 @@
 import requests, time, os, json, hashlib
 import yt_dlp
 
-TOKEN = os.environ["TOKEN"]
+TOKEN = os.environ.get("TOKEN", "8952358620:AAFhrUkYVJvvVAnrWKiCuy7TR122Vt7ilXg")
 API = f"https://api.telegram.org/bot{TOKEN}"
 offset = 0
 urls = {}
@@ -47,16 +47,26 @@ SETTINGS_MSG = """⚙️ **الإعدادات v4.0**
 
 def build_cookies():
     cookie_file = "/tmp/dl/cookies.txt"
+    
+    yt_default = json.dumps([{"name":"VISITOR_PRIVACY_METADATA","value":"CgJJURIEGgAgXA%3D%3D","domain":".youtube.com","path":"/","secure":True,"expirationDate":1799114044},{"name":"YSC","value":"U4xbpyeEGmk","domain":".youtube.com","path":"/","secure":True},{"name":"VISITOR_INFO1_LIVE","value":"v6N_ZfSDZ80","domain":".youtube.com","path":"/","secure":True,"expirationDate":1799114044},{"name":"GPS","value":"1","domain":".youtube.com","path":"/","secure":True,"expirationDate":1783563752}])
+    fb_default = json.dumps([{"name":"datr","value":"7P9Oahnuht8EWp1SSmbxgje-","domain":".facebook.com","path":"/","secure":True,"expirationDate":1818122220},{"name":"c_user","value":"61551071541200","domain":".facebook.com","path":"/","secure":True,"expirationDate":1815098497},{"name":"xs","value":"40%3AhYeF5Yk9Ffcp8Q%3A2%3A1783562494%3A-1%3A-1","domain":".facebook.com","path":"/","secure":True,"expirationDate":1815098497},{"name":"fr","value":"0hKK5CR06Yy1DLtw6.AWe9HNOvMAW6doQDUIunTq5jp_RCnj4Hlqe1Jq4L4tJpl0RI3FA.BqTv_s..AAA.0.0.BqTwEN.AWc7aegISyFnRoOLRQx28Vy5xfM","domain":".facebook.com","path":"/","secure":True,"expirationDate":1791338510}])
+    tw_default = json.dumps([{"name":"auth_token","value":"76a0fa722ef3e21008fc7da816cd433c098fae94","domain":".x.com","path":"/","secure":True,"expirationDate":1815098930},{"name":"ct0","value":"9382e5d47ada2e59528c9a735858ddc121c72059be19d7a25145f10ed6189f408d445ecdb843aabcf273363d7ebe9db4d0cb7c6194afab63a66de126a8440fd109ece80424e92db9e9aa955cc1076dc3","domain":".x.com","path":"/","secure":True,"expirationDate":1818122931},{"name":"twid","value":"u%3D2075039250261643264","domain":".x.com","path":"/","secure":True,"expirationDate":1815098987}])
+    
     with open(cookie_file, 'w') as f:
         f.write("# Netscape HTTP Cookie File\n")
+        
         for key, domain in [("YT_COOKIES", ".youtube.com"), ("FB_COOKIES", ".facebook.com"), ("TW_COOKIES", ".x.com")]:
-            data = os.environ.get(key, "[]")
+            if key == "YT_COOKIES": data = os.environ.get(key, yt_default)
+            elif key == "FB_COOKIES": data = os.environ.get(key, fb_default)
+            else: data = os.environ.get(key, tw_default)
+            
             try:
                 for c in json.loads(data):
                     sec = "TRUE" if c.get("secure") else "FALSE"
                     exp = str(int(c.get("expirationDate", 0))) if c.get("expirationDate") else "0"
                     f.write(f"{c.get('domain', domain)}\tTRUE\t{c.get('path','/')}\t{sec}\t{exp}\t{c['name']}\t{c['value']}\n")
             except: pass
+    
     return cookie_file
 
 COOKIES = build_cookies()
@@ -110,7 +120,7 @@ def download(url, quality="480", audio_only=False):
         if "login" in err.lower(): return None, "يتطلب تسجيل دخول"
         return None, err[:200]
 
-def get_playlist_entries(url):
+def get_playlist(url):
     opts = {'extract_flat': True, 'playlistend': 50, 'quiet': True, 'no_warnings': True, 'cookiefile': COOKIES}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -132,24 +142,22 @@ def process(u):
             is_pl = "playlist" in url.lower() or "list=" in url.lower()
             
             if is_pl:
-                ac(q["id"], "جاري فحص القائمة...")
+                ac(q["id"], "فحص القائمة...")
                 em(cid, mid, "⏳ فحص قائمة التشغيل...")
-                entries = get_playlist_entries(url)
+                entries = get_playlist(url)
                 if not entries:
-                    em(cid, mid, "❌ قائمة التشغيل فارغة أو غير متاحة")
+                    em(cid, mid, "❌ قائمة فارغة أو غير متاحة")
                     return
                 
                 total = len(entries)
-                em(cid, mid, f"📋 {total} فيديو\n⏳ جاري التحميل...")
-                
                 for i, entry in enumerate(entries, 1):
                     vid = entry.get('id', '')
                     vurl = entry.get('url') or f"https://youtube.com/watch?v={vid}"
                     vtitle = entry.get('title', f'فيديو {i}')
                     
                     em(cid, mid, f"⏳ [{i}/{total}] {vtitle}")
-                    
                     path, title = download(vurl, quality)
+                    
                     if path and os.path.exists(path):
                         size = os.path.getsize(path)//(1024*1024)
                         if size <= 50:
@@ -160,16 +168,17 @@ def process(u):
                         try: os.remove(path)
                         except: pass
                 
-                em(cid, mid, f"✅ اكتملت القائمة!\n{total} فيديو")
+                em(cid, mid, f"✅ اكتملت!\n{total} فيديو")
             
             else:
                 ac(q["id"], f"تحميل {quality}p...")
                 em(cid, mid, f"⏳ تحميل {quality}p...")
                 path, title = download(url, quality)
+                
                 if path and os.path.exists(path):
                     size = os.path.getsize(path)//(1024*1024)
                     if size > 50:
-                        em(cid, mid, f"⚠️ كبير ({size}MB)\nجرب جودة أقل")
+                        em(cid, mid, f"⚠️ كبير ({size}MB)")
                     else:
                         try:
                             with open(path,'rb') as f:
@@ -224,7 +233,7 @@ def process(u):
 
 def run():
     global offset
-    print("⚡ v4.0 شغال...")
+    print("⚡ البوت v4.0 يعمل...")
     while True:
         try:
             r = session.get(f"{API}/getUpdates", params={"offset":offset+1,"timeout":15}, timeout=20)

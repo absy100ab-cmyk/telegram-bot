@@ -1,185 +1,160 @@
-import requests
-import time
 import os
-import json
-import hashlib
-import re
+import time
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import yt_dlp
+import queue
+import threading
 
+# --- الإعدادات الأساسية ---
 TOKEN = os.environ.get("TOKEN", "8952358620:AAFhrUkYVJvvVAnrWKiCuy7TR122Vt7ilXg")
-API = f"https://api.telegram.org/bot{TOKEN}"
-offset = 0
-urls = {}
+bot = telebot.TeleBot(TOKEN)
 DL_DIR = "/tmp/dl"
 os.makedirs(DL_DIR, exist_ok=True)
 
-session = requests.Session()
-session.headers.update({"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15"})
+# قاموس لحفظ روابط المستخدمين مؤقتاً
+user_urls = {}
 
-START_MSG = """👋 أهلاً بك!
-📩 أرسل رابط الفيديو للتحميل.
-🎥 اختر الجودة أو 🎵 صوت MP3.
-📱 يوتيوب | تيك توك | انستغرام | تويتر | فيسبوك | بنترست
+# --- نظام الطوابير ---
+dl_queue = queue.Queue()
+
+def process_queue():
+    """عامل يعمل بالخلفية يسحب الطلبات من الطابور وينفذها بالترتيب"""
+    while True:
+        task = dl_queue.get() # سحب أول طلب في الطابور
+        cid = task['cid']
+        mid = task['mid']
+        url = task['url']
+        dl_type = task['type']
+
+        try:
+            bot.edit_message_text("⏳ بدأ دورك! جاري المعالجة والتحميل الآن...", cid, mid)
+            
+            # استدعاء دالة التحميل
+            file_path = download_media(url, cid, type=dl_type)
+            
+            if file_path and os.path.exists(file_path):
+                # فحص حجم الملف (حد تليجرام 50 ميجا)
+                file_size = os.path.getsize(file_path) / (1024 * 1024)
+                if file_size > 49.5:
+                    bot.edit_message_text(f"⚠️ حجم الملف ({file_size:.1f} MB) يتجاوز الحد المسموح لتليجرام (50 MB).", cid, mid)
+                else:
+                    bot.edit_message_text("🚀 جاري الرفع إلى تليجرام...", cid, mid)
+                    try:
+                        with open(file_path, 'rb') as f:
+                            if dl_type == "audio":
+                                bot.send_audio(cid, f, caption="تم التحميل بواسطة @B43lB")
+                            else:
+                                bot.send_video(cid, f, caption="تم التحميل بواسطة @B43lB")
+                        bot.delete_message(cid, mid) # مسح رسالة "جاري الرفع" بعد الانتهاء
+                    except Exception as e:
+                        bot.send_message(cid, "❌ حدث خطأ أثناء الرفع إلى تليجرام.")
+                        
+                # حذف الملف من السيرفر لتوفير المساحة
+                try: os.remove(file_path)
+                except: pass
+            else:
+                bot.edit_message_text("❌ فشل التحميل! الرابط قد يكون خاصاً، أو الموقع قام بتغيير حمايته.", cid, mid)
+                
+        except Exception as e:
+            print(f"Queue Error: {e}")
+            try: bot.edit_message_text("❌ حدث خطأ غير متوقع أثناء المعالجة.", cid, mid)
+            except: pass
+            
+        finally:
+            dl_queue.task_done() # إخبار الطابور بانتهاء الطلب للانتقال للذي يليه
+
+# تشغيل الطابور في مسار (Thread) منفصل
+threading.Thread(target=process_queue, daemon=True).start()
+
+
+# --- رسائل البوت ---
+START_MSG = """👋 أهلاً بك في بوت التحميل المطور!
+📩 أرسل أي رابط فيديو (يوتيوب، تيك توك، انستغرام، تويتر، بنترست...)
+🎥 وسأقوم بتحميله لك فوراً.
 المالك ✓ @B43lB"""
 
-COOKIES_FILE = "/tmp/dl/cookies.txt"
-with open(COOKIES_FILE, 'w') as f:
-    f.write("# Netscape HTTP Cookie File\n")
-    f.write(".youtube.com\tTRUE\t/\tTRUE\t0\tCONSENT\tYES+cb\n")
-    f.write(".youtube.com\tTRUE\t/\tTRUE\t0\tGPS\t1\n")
-
-def sm(cid, txt, kb=None):
-    try:
-        p = {"chat_id": cid, "text": txt[:4000], "parse_mode": "Markdown"}
-        if kb: p["reply_markup"] = kb
-        return session.post(f"{API}/sendMessage", json=p, timeout=5).json()
-    except: return None
-
-def em(cid, mid, txt, kb=None):
-    try:
-        p = {"chat_id": cid, "message_id": mid, "text": txt[:4000], "parse_mode": "Markdown"}
-        if kb: p["reply_markup"] = kb
-        session.post(f"{API}/editMessageText", json=p, timeout=5)
-    except: pass
-
-def send_video(cid, filepath, caption=""):
-    try:
-        with open(filepath, 'rb') as video:
-            files = {'video': video}
-            data = {'chat_id': cid, 'caption': caption}
-            return session.post(f"{API}/sendVideo", data=data, files=files, timeout=60).json()
-    except Exception as e:
-        print(f"Error sending video: {e}")
-        return None
-
-def send_audio(cid, filepath, caption=""):
-    try:
-        with open(filepath, 'rb') as audio:
-            files = {'audio': audio}
-            data = {'chat_id': cid, 'caption': caption}
-            return session.post(f"{API}/sendAudio", data=data, files=files, timeout=60).json()
-    except Exception as e:
-        print(f"Error sending audio: {e}")
-        return None
-
-# === دالة التحميل الذكية باستخدام yt_dlp ===
-def download_media(url, cid, quality="720", audio_only=False):
-    # توليد اسم ملف فريد باستخدام الـ timestamp والـ chat_id
+# --- دالة التحميل الذكية ---
+def download_media(url, cid, type="video"):
     file_id = f"{cid}_{int(time.time())}"
     
     ydl_opts = {
         'outtmpl': f'{DL_DIR}/{file_id}.%(ext)s',
-        'cookiefile': COOKIES_FILE,
         'quiet': True,
         'no_warnings': True,
+        # هيدرز قوية لتخطي حظر تيك توك ويوتيوب
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        'extractor_args': {'tiktok': {'app_version': '20.2.1'}}
     }
 
-    if audio_only:
+    if type == "audio":
         ydl_opts.update({
             'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         })
     else:
-        # اختيار الجودة المطلوبة أو أقرب جودة لها بحيث لا تتعدى المسموح
+        # تحميل فيديو بصيغة mp4 متوافقة مع تليجرام
         ydl_opts.update({
-            'format': f'bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best',
-            'merge_output_format': 'mp4'
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         })
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
-            
-            # إذا كان صوت، الامتداد سيتحول إلى mp3 تلقائياً بسبب الـ postprocessor
-            if audio_only:
+            if type == "audio":
                 filename = os.path.splitext(filename)[0] + ".mp3"
-            elif not os.path.exists(filename):
-                # في بعض الأحيان يتم دمج الفيديو بصيغة mp4 تلقائياً
-                filename = os.path.splitext(filename)[0] + ".mp4"
-                
             return filename
     except Exception as e:
-        print(f"Download error: {e}")
+        print(f"Error in yt_dlp: {e}")
         return None
 
-# === دالة فحص التحديثات الأساسية (Long Polling) ===
-def main_loop():
-    global offset
-    print("Bot started...")
-    while True:
-        try:
-            r = session.get(f"{API}/getUpdates", json={"offset": offset, "timeout": 20}, timeout=25).json()
-            if not r.get("ok"): continue
-            
-            for u in r.get("result", []):
-                offset = u["update_id"] + 1
-                
-                # التعامل مع الرسائل النصية
-                if "message" in u and "text" in u["message"]:
-                    msg = u["message"]
-                    cid = msg["chat"]["id"]
-                    txt = msg["text"]
-                    
-                    if txt == "/start":
-                        sm(cid, START_MSG)
-                    elif txt.startswith("http"):
-                        # حفظ الرابط مؤقتاً للمستخدم (تطوير بسيط لأجل الأزرار)
-                        urls[cid] = txt
-                        kb = {
-                            "inline_keyboard": [
-                                [{"text": "🎬 فيديو 720p", "callback_data": "vid_720"}, {"text": "🎬 فيديو 480p", "callback_data": "vid_480"}],
-                                [{"text": "🎵 صوت MP3", "callback_data": "aud_mp3"}]
-                            ]
-                        }
-                        sm(cid, "📥 اختر صيغة التحميل المناسبة:", kb)
-                
-                # التعامل مع ضغطات الأزرار (Callback Queries)
-                elif "callback_query" in u:
-                    cb = u["callback_query"]
-                    cid = cb["message"]["chat"]["id"]
-                    mid = cb["message"]["message_id"]
-                    data = cb["data"]
-                    
-                    url = urls.get(cid)
-                    if not url:
-                        em(cid, mid, "❌ انتهت صلاحية الرابط، أرسله مجدداً.")
-                        continue
-                        
-                    em(cid, mid, "⏳ جاري التحميل والمعالجة... قد يستغرق ذلك دقيقة.")
-                    
-                    if data == "aud_mp3":
-                        file = download_media(url, cid, audio_only=True)
-                        if file and os.path.exists(file):
-                            em(cid, mid, "🚀 جاري الرفع إلى تليجرام...")
-                            send_audio(cid, file, "تم التحميل بواسطة @B43lB")
-                            try: os.remove(file)
-                            except: pass
-                        else:
-                            em(cid, mid, "❌ فشل تحميل الصوت. تأكد من الرابط أو جرب لاحقاً.")
-                            
-                    elif data.startswith("vid_"):
-                        quality = data.split("_")[1]
-                        file = download_media(url, cid, quality=quality, audio_only=False)
-                        if file and os.path.exists(file):
-                            # فحص الحجم قبل الرفع (تليجرام ليميت = 50MB للـ API العادي)
-                            if os.path.getsize(file) > 49 * 1024 * 1024:
-                                em(cid, mid, "⚠️ الملف كبير جداً (أكبر من 50 ميجا). الـ API المجاني لا يدعم رفعه.")
-                            else:
-                                em(cid, mid, "🚀 جاري الرفع إلى تليجرام...")
-                                send_video(cid, file, f"تم التحميل بجودة {quality}p ✓")
-                            try: os.remove(file)
-                            except: pass
-                        else:
-                            em(cid, mid, "❌ فشل تحميل الفيديو. تأكد من صلاحية الرابط.")
-                            
-        except Exception as e:
-            print(f"Loop error: {e}")
-            time.sleep(2)
+# --- الرد على /start ---
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, START_MSG)
 
-if __name__ == "__main__":
-    main_loop()
+# --- الرد على أي رابط ---
+@bot.message_handler(func=lambda message: message.text and message.text.startswith('http'))
+def handle_url(message):
+    cid = message.chat.id
+    user_urls[cid] = message.text  # حفظ الرابط
+    
+    # صنع أزرار شفافة (Inline Keyboard)
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("🎬 فيديو (MP4)", callback_data="dl_video"))
+    markup.row(InlineKeyboardButton("🎵 صوت فقط (MP3)", callback_data="dl_audio"))
+    
+    bot.reply_to(message, "📥 ماذا تريد أن تحمل من هذا الرابط؟", reply_markup=markup)
+
+# --- التعامل مع ضغطات الأزرار (إضافة للطابور) ---
+@bot.callback_query_handler(func=lambda call: call.data.startswith('dl_'))
+def handle_download(call):
+    cid = call.message.chat.id
+    mid = call.message.message_id
+    url = user_urls.get(cid)
+    
+    if not url:
+        bot.edit_message_text("❌ عذراً، انتهت صلاحية الرابط. أرسله من جديد.", cid, mid)
+        return
+
+    dl_type = "audio" if call.data == "dl_audio" else "video"
+    
+    # معرفة رقم المستخدم في الطابور
+    queue_position = dl_queue.qsize() + 1
+    
+    bot.edit_message_text(f"✅ تمت إضافتك للطابور.\nأنت رقم ({queue_position}) في الانتظار...", cid, mid)
+    
+    # رمي الطلب في الطابور بدل معالجته فوراً
+    dl_queue.put({
+        'cid': cid,
+        'mid': mid,
+        'url': url,
+        'type': dl_type
+    })
+
+# --- تشغيل البوت باستمرار ---
+print("✅ البوت يعمل الآن مع نظام الطوابير...")
+bot.infinity_polling()

@@ -1,363 +1,232 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import os
-import sys
-import time
-import queue
-import random
-import threading
-import logging
-from datetime import datetime
-
-# تثبيت التبعيات تلقائياً
-def install_packages():
-    packages = ['pyTelegramBotAPI', 'yt-dlp']
-    for package in packages:
-        try:
-            __import__(package.replace('-', '_'))
-        except ImportError:
-            print(f"📦 جاري تثبيت {package}...")
-            os.system(f"{sys.executable} -m pip install {package}")
-
-install_packages()
-
-# استيراد المكتبات بعد التأكد من تثبيتها
+import requests, time, os, json, hashlib, re
 import yt_dlp
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ============================================
-# إعدادات التسجيل (Logging)
-# ============================================
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# ===== التوكن الجديد =====
+TOKEN = "8952358620:AAGklvNQsCf_7JEE6E-ms16ILTC1Ai5CWHQ"
+API = f"https://api.telegram.org/bot{TOKEN}"
+offset = 0
+urls = {}
+os.makedirs("/tmp/dl", exist_ok=True)
+session = requests.Session()
 
-# ============================================
-# إعدادات البوت
-# ============================================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # ⚠️ استبدل بالتوكن الخاص بك
+START_MSG = """👋 أهلاً بك!
+📩 أرسل رابط الفيديو للتحميل.
+🎥 اختر الجودة أو 🎵 صوت MP3.
+📱 يوتيوب | تيك توك | انستغرام | تويتر | فيسبوك | بنترست
+المالك ✓ @B43lB"""
 
-START_MSG = """
-🎬 **مرحباً بك في بوت التحميل!**
+HELP_MSG = """🆘 أرسل رابط الفيديو ثم اختر الجودة أو الصوت."""
+ABOUT_MSG = """🤖 بوت التحميل v5\n🎥 144p-1080p | 🎵 MP3\n👨‍💻 @B43lB"""
+SETTINGS_MSG = """⚙️ الجودة: 144p-1080p | الصوت: MP3"""
 
-📥 أرسل رابط من:
-• تيك توك (TikTok)
-• يوتيوب (YouTube)  
-• انستغرام (Instagram)
-• فيسبوك (Facebook)
-• تويتر (Twitter/X)
+# ===== كوكيز تيك توك وبنترست =====
+COOKIES_FILE = "/tmp/dl/cookies.txt"
+COOKIES_CONTENT = """# Netscape HTTP Cookie File
+# TikTok Cookies
+.tiktok.com	TRUE	/	TRUE	1735689600	tt_webid	v1_abc123def456
+.tiktok.com	TRUE	/	TRUE	1735689600	sessionid	abc123xyz789
+.tiktok.com	TRUE	/	TRUE	1735689600	tt_csrf_token	xyz789abc123
+.tiktok.com	TRUE	/	TRUE	1735689600	tt_chain_token	chain123token
+.tiktok.com	TRUE	/	TRUE	1735689600	msToken	ms_token_xyz789
 
-سأعطيك خيارات التحميل المناسبة!
+# Pinterest Cookies
+.pinterest.com	TRUE	/	TRUE	1735689600	csrftoken	csrf_token_abc123
+.pinterest.com	TRUE	/	TRUE	1735689600	sessionid	session_xyz789
+.pinterest.com	TRUE	/	TRUE	1735689600	_ir	ir_token_123
+.pinterest.com	TRUE	/	TRUE	1735689600	_pinterest_sess	sess_data_abc
+.pinterest.com	TRUE	/	TRUE	1735689600	_ga	GA1.2.123456789
+
+# YouTube Cookies
+.youtube.com	TRUE	/	TRUE	0	CONSENT	YES+cb
+.youtube.com	TRUE	/	TRUE	1735689600	VISITOR_INFO1_LIVE	visitor_token_abc
+.youtube.com	TRUE	/	TRUE	1735689600	PREF	pref_token_xyz
 """
 
-# ============================================
-# المتغيرات العامة
-# ============================================
-dl_queue = queue.Queue()
-user_urls = {}
-DOWNLOAD_PATH = "downloads"
-COOKIES_FILE = "cookies.txt"
+with open(COOKIES_FILE, 'w') as f:
+    f.write(COOKIES_CONTENT)
 
-# إنشاء المجلدات
-os.makedirs(DOWNLOAD_PATH, exist_ok=True)
+print(f"✅ تم حفظ الكوكيز في {COOKIES_FILE}")
 
-# ============================================
-# قائمة User-Agents
-# ============================================
-USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
-]
+def sm(cid, txt, kb=None):
+    try:
+        p = {"chat_id": cid, "text": txt[:4000], "parse_mode": "Markdown"}
+        if kb: p["reply_markup"] = kb
+        session.post(f"{API}/sendMessage", json=p, timeout=5)
+    except: pass
 
-def get_random_user_agent():
-    return random.choice(USER_AGENTS)
+def em(cid, mid, txt, kb=None):
+    try:
+        p = {"chat_id": cid, "message_id": mid, "text": txt[:4000], "parse_mode": "Markdown"}
+        if kb: p["reply_markup"] = kb
+        session.post(f"{API}/editMessageText", json=p, timeout=5)
+    except: pass
 
-# ============================================
-# التحقق من ملف الكوكيز
-# ============================================
-def check_cookies():
-    """التحقق من وجود وصلاحية ملف الكوكيز"""
-    if os.path.exists(COOKIES_FILE):
+def ac(qid, txt, alert=False):
+    try: session.post(f"{API}/answerCallbackQuery", json={"callback_query_id": qid, "text": txt, "show_alert": alert}, timeout=2)
+    except: pass
+
+def download(url, quality="720", audio=False):
+    # معالجة بنترست
+    if 'pinterest.com' in url.lower() or 'pin.it' in url.lower():
         try:
-            with open(COOKIES_FILE, 'r', encoding='utf-8') as f:
-                content = f.read()
-                if 'tiktok' in content.lower() or 'youtube' in content.lower():
-                    logger.info(f"✅ تم العثور على كوكيز للمواقع المطلوبة")
-                    return True
-                else:
-                    logger.warning("⚠️ ملف الكوكيز لا يحتوي على كوكيز للمواقع المطلوبة")
-                    return False
+            h = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            r = session.get(url, headers=h, timeout=15)
+            html = r.text
+            
+            # البحث عن فيديو
+            v = re.findall(r'"(https?://[^"]*\.mp4[^"]*)"', html)
+            if v:
+                vurl = v[0].replace('\\', '')
+                path = f"/tmp/dl/p_{int(time.time())}.mp4"
+                r2 = session.get(vurl, headers=h, timeout=120)
+                with open(path, 'wb') as f: f.write(r2.content)
+                if os.path.exists(path) and os.path.getsize(path) > 10000:
+                    return path, "Pinterest"
+            
+            # البحث عن صورة
+            i = re.findall(r'"(https?://i\.pinimg\.com/originals/[^"]*\.(jpg|png)[^"]*)"', html)
+            if i:
+                iurl = i[0][0].replace('\\', '')
+                path = f"/tmp/dl/p_{int(time.time())}.{i[0][1]}"
+                r2 = session.get(iurl, headers=h, timeout=60)
+                with open(path, 'wb') as f: f.write(r2.content)
+                if os.path.exists(path): return path, "Pinterest"
+            return None, "لم يتم العثور على محتوى"
         except Exception as e:
-            logger.error(f"❌ خطأ في قراءة ملف الكوكيز: {e}")
-            return False
-    else:
-        logger.warning("⚠️ ملف الكوكيز غير موجود")
-        return False
+            return None, str(e)[:200]
 
-# ============================================
-# إعدادات yt-dlp
-# ============================================
-def get_ydl_opts(dl_type):
-    """إعدادات yt-dlp للتحميل"""
-    
-    # الإعدادات الأساسية
-    ydl_opts = {
+    # إعدادات yt-dlp
+    fmt = 'bestaudio/best' if audio else f'best[height<={quality}]/best'
+    opts = {
+        'outtmpl': '/tmp/dl/%(title).60s.%(ext)s',
+        'format': fmt,
+        'merge_output_format': None if audio else 'mp4',
         'quiet': True,
         'no_warnings': True,
-        'ignoreerrors': True,
-        'socket_timeout': 30,
-        'retries': 5,
-        'fragment_retries': 5,
-        'outtmpl': os.path.join(DOWNLOAD_PATH, '%(title)s_%(id)s.%(ext)s'),
-        'http_headers': {
-            'User-Agent': get_random_user_agent(),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-        },
+        'nocheckcertificate': True,
+        'retries': 10,
+        'fragment_retries': 10,
+        'socket_timeout': 60,
+        'cookiefile': COOKIES_FILE,
+        'user_agent': random.choice([
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'
+        ]),
         'extractor_args': {
             'tiktok': {
                 'app_version': ['34.1.2'],
                 'device_type': ['iPhone13,3'],
+                'os_version': ['16.0'],
+                'os': ['ios'],
             },
             'youtube': {
+                'skip': ['hls', 'dash'],
                 'player_client': ['android'],
             }
         }
     }
     
-    # إضافة الكوكيز إذا كانت موجودة
-    if os.path.exists(COOKIES_FILE):
-        ydl_opts['cookiefile'] = COOKIES_FILE
-        logger.info(f"🍪 استخدام كوكيز من: {COOKIES_FILE}")
+    if audio:
+        opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192'
+        }]
     
-    # إعدادات حسب نوع التحميل
-    if dl_type == "audio":
-        ydl_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        })
-    else:
-        ydl_opts.update({
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        })
-    
-    return ydl_opts
-
-# ============================================
-# دالة التحميل الرئيسية
-# ============================================
-def download_media(url, dl_type):
-    """تحميل الميديا من الرابط"""
     try:
-        logger.info(f"📥 بدء تحميل: {url} (نوع: {dl_type})")
-        
-        ydl_opts = get_ydl_opts(dl_type)
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # محاولة استخراج المعلومات
-            try:
-                info = ydl.extract_info(url, download=True)
-            except Exception as e:
-                logger.error(f"❌ فشل استخراج المعلومات: {e}")
-                # محاولة بدون كوكيز
-                if 'cookiefile' in ydl_opts:
-                    del ydl_opts['cookiefile']
-                    logger.info("🔄 محاولة التحميل بدون كوكيز...")
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl2:
-                        info = ydl2.extract_info(url, download=True)
-            
-            # تحديد اسم الملف
-            filename = ydl.prepare_filename(info)
-            
-            if dl_type == "audio":
-                base, _ = os.path.splitext(filename)
-                filename = base + ".mp3"
-            
-            if os.path.exists(filename):
-                logger.info(f"✅ تم التحميل بنجاح: {filename}")
-                return filename
-            else:
-                raise Exception("الملف لم يتم إنشاؤه")
-                
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+        if not info: return None, "فشل"
+        path = ydl.prepare_filename(info)
+        if not os.path.exists(path):
+            base = os.path.splitext(path)[0]
+            for e in (['mp3'] if audio else ['mp4','mkv','webm']):
+                if os.path.exists(f"{base}.{e}"): path = f"{base}.{e}"; break
+        if os.path.exists(path): return path, info.get('title','')
+        return None, "ملف غير موجود"
     except Exception as e:
-        logger.error(f"❌ خطأ في التحميل: {e}")
-        raise
+        return None, str(e)[:200]
 
-# ============================================
-# معالج الطابور
-# ============================================
-def process_queue():
-    """معالجة طابور التحميلات"""
-    logger.info("🔄 بدء تشغيل معالج الطابور...")
+def process(u):
+    if "callback_query" in u:
+        q = u["callback_query"]
+        cid = q["message"]["chat"]["id"]
+        mid = q["message"]["message_id"]
+        d = q["data"]
+        
+        if d.startswith("q_"):
+            _, key, quality = d.split("_")
+            if key not in urls: ac(q["id"], "انتهت"); return
+            ac(q["id"], "تحميل...")
+            em(cid, mid, f"⏳ تحميل {quality}p...")
+            path, title = download(urls[key], quality)
+            if path and os.path.exists(path):
+                size = os.path.getsize(path)//(1024*1024)
+                if size > 50:
+                    em(cid, mid, f"⚠️ كبير ({size}MB)")
+                else:
+                    try:
+                        with open(path,'rb') as f:
+                            if path.endswith(('.jpg','.png')):
+                                session.post(f"{API}/sendPhoto", data={"chat_id":cid,"caption":f"✅ {title}"}, files={"photo":f}, timeout=300)
+                            else:
+                                session.post(f"{API}/sendVideo", data={"chat_id":cid,"supports_streaming":True,"caption":f"✅ {title}\n{size}MB | {quality}p"}, files={"video":f}, timeout=300)
+                        em(cid, mid, f"✅ {title}")
+                    except Exception as e:
+                        em(cid, mid, f"❌ فشل الإرسال: {str(e)[:100]}")
+                try: os.remove(path)
+                except: pass
+            else: em(cid, mid, f"❌ {title}")
+        
+        elif d.startswith("a_"):
+            key = d[2:]
+            if key not in urls: ac(q["id"], "انتهت"); return
+            ac(q["id"], "تحميل صوت...")
+            em(cid, mid, "⏳ تحميل الصوت...")
+            path, title = download(urls[key], audio=True)
+            if path and os.path.exists(path):
+                try:
+                    with open(path,'rb') as f:
+                        session.post(f"{API}/sendAudio", data={"chat_id":cid,"caption":f"🎵 {title}"}, files={"audio":f}, timeout=300)
+                    em(cid, mid, f"✅ {title}")
+                except: em(cid, mid, "فشل")
+                try: os.remove(path)
+                except: pass
+            else: em(cid, mid, f"❌ {title}")
     
+    if "message" in u and "text" in u["message"]:
+        m = u["message"]
+        cid = m["chat"]["id"]
+        txt = m["text"].strip()
+        if txt == "/start": sm(cid, START_MSG)
+        elif txt == "/help": sm(cid, HELP_MSG)
+        elif txt == "/about": sm(cid, ABOUT_MSG)
+        elif txt == "/settings": sm(cid, SETTINGS_MSG)
+        elif txt.startswith("http"):
+            key = hashlib.md5(txt.encode()).hexdigest()[:8]
+            urls[key] = txt
+            kb = json.dumps({"inline_keyboard": [
+                [{"text": "🎥 144p", "callback_data": f"q_{key}_144"}, {"text": "🎥 360p", "callback_data": f"q_{key}_360"}],
+                [{"text": "🎥 480p", "callback_data": f"q_{key}_480"}, {"text": "🎥 720p", "callback_data": f"q_{key}_720"}],
+                [{"text": "🎥 1080p", "callback_data": f"q_{key}_1080"}],
+                [{"text": "🎵 صوت MP3", "callback_data": f"a_{key}"}]
+            ]})
+            sm(cid, "✅ تم استلام الرابط\nاختر:", kb)
+
+def run():
+    global offset
+    print("⚡ البوت يعمل مع كوكيز تيك توك وبنترست...")
+    print(f"🤖 التوكن: {TOKEN[:10]}...")
     while True:
         try:
-            if not dl_queue.empty():
-                task = dl_queue.get()
-                cid = task['cid']
-                mid = task['mid']
-                url = task['url']
-                dl_type = task['type']
-                
-                try:
-                    # تحديث حالة المستخدم
-                    bot.edit_message_text("⏳ جاري التحميل...", cid, mid)
-                    
-                    # تحميل الملف
-                    filename = download_media(url, dl_type)
-                    
-                    if filename and os.path.exists(filename):
-                        # إرسال الملف
-                        with open(filename, 'rb') as f:
-                            if dl_type == "audio":
-                                bot.send_audio(cid, f, caption="🎵 تم التحميل بنجاح!")
-                            else:
-                                bot.send_video(cid, f, caption="🎬 تم التحميل بنجاح!")
-                        
-                        # حذف الملف المؤقت
-                        os.remove(filename)
-                        bot.edit_message_text("✅ تم التحميل والإرسال!", cid, mid)
-                    else:
-                        bot.edit_message_text("❌ فشل التحميل. حاول مرة أخرى.", cid, mid)
-                        
-                except Exception as e:
-                    error_msg = str(e)[:200]
-                    logger.error(f"❌ خطأ في معالجة المهمة: {error_msg}")
-                    bot.edit_message_text(f"❌ خطأ: {error_msg}", cid, mid)
-                
-                dl_queue.task_done()
-            
-            time.sleep(0.5)
-            
-        except Exception as e:
-            logger.error(f"❌ خطأ في معالج الطابور: {e}")
-            time.sleep(1)
+            r = session.get(f"{API}/getUpdates", params={"offset":offset+1,"timeout":15}, timeout=20)
+            if r.status_code != 200: time.sleep(2); continue
+            for u in r.json().get("result", []):
+                offset = u["update_id"]
+                process(u)
+        except: time.sleep(3)
 
-# ============================================
-# بدء تشغيل البوت
-# ============================================
-logger.info("🚀 بدء تشغيل البوت...")
-
-# التحقق من الكوكيز
-cookies_status = check_cookies()
-
-# إنشاء البوت
-try:
-    bot = telebot.TeleBot(BOT_TOKEN)
-    logger.info("✅ تم إنشاء البوت بنجاح")
-except Exception as e:
-    logger.error(f"❌ فشل إنشاء البوت: {e}")
-    sys.exit(1)
-
-# بدء معالج الطابور
-threading.Thread(target=process_queue, daemon=True).start()
-
-# ============================================
-# أوامر البوت
-# ============================================
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    """الرد على أمر /start"""
-    bot.reply_to(message, START_MSG, parse_mode='Markdown')
-    logger.info(f"📱 مستخدم جديد: {message.chat.id}")
-
-@bot.message_handler(commands=['status'])
-def send_status(message):
-    """التحقق من حالة البوت"""
-    status = f"""
-📊 **حالة البوت**:
-
-📁 مجلد التحميل: `{DOWNLOAD_PATH}`
-🍪 الكوكيز: `{'✅ مفعلة' if cookies_status else '❌ معطلة'}`
-📋 عدد المهام في الطابور: `{dl_queue.qsize()}`
-👥 عدد المستخدمين: `{len(user_urls)}`
-🔄 عدد محاولات إعادة التحميل: `5`
-    """
-    bot.reply_to(message, status, parse_mode='Markdown')
-
-@bot.message_handler(func=lambda message: message.text and message.text.startswith(('http://', 'https://')))
-def handle_url(message):
-    """التعامل مع الروابط"""
-    cid = message.chat.id
-    url = message.text.strip()
-    
-    # حفظ الرابط
-    user_urls[cid] = url
-    
-    # أزرار التحميل
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("🎬 فيديو MP4", callback_data="dl_video"),
-        InlineKeyboardButton("🎵 صوت MP3", callback_data="dl_audio")
-    )
-    
-    bot.reply_to(message, "📥 اختر نوع التحميل:", reply_markup=markup)
-    logger.info(f"📎 رابط جديد من {cid}: {url[:50]}...")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('dl_'))
-def handle_download(call):
-    """التعامل مع أزرار التحميل"""
-    cid = call.message.chat.id
-    mid = call.message.message_id
-    url = user_urls.get(cid)
-    
-    if not url:
-        bot.edit_message_text("❌ انتهت صلاحية الرابط. أرسله من جديد.", cid, mid)
-        return
-    
-    dl_type = "audio" if call.data == "dl_audio" else "video"
-    queue_position = dl_queue.qsize() + 1
-    
-    # إضافة للطابور
-    dl_queue.put({
-        'cid': cid,
-        'mid': mid,
-        'url': url,
-        'type': dl_type
-    })
-    
-    bot.edit_message_text(
-        f"✅ تمت الإضافة للطابور!\n"
-        f"📋 رقمك: {queue_position}\n"
-        f"⏳ سيتم التحميل قريباً...",
-        cid, mid
-    )
-    
-    logger.info(f"📥 إضافة مهمة للطابور: {cid} - {dl_type}")
-
-# ============================================
-# تشغيل البوت
-# ============================================
 if __name__ == "__main__":
-    print("\n" + "="*50)
-    print("🚀 تشغيل بوت التحميل")
-    print("="*50)
-    print(f"📁 مسار التحميل: {os.path.abspath(DOWNLOAD_PATH)}")
-    print(f"🍪 حالة الكوكيز: {'✅ مفعلة' if cookies_status else '⚠️ معطلة'}")
-    print(f"📄 ملف الكوكيز: {COOKIES_FILE if os.path.exists(COOKIES_FILE) else 'غير موجود'}")
-    print("="*50)
-    print("✅ البوت جاهز للعمل...\n")
-    
-    try:
-        bot.infinity_polling()
-    except Exception as e:
-        logger.error(f"❌ توقف البوت: {e}")
-        sys.exit(1)
+    import random
+    run()

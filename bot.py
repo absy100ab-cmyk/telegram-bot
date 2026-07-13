@@ -1,8 +1,9 @@
 import requests, time, os, json, hashlib, re
 import yt_dlp
+import subprocess
 
-# ===== التوكن الجديد =====
-TOKEN = "8952358620:AAGklvNQsCf_7JEE6E-ms16ILTC1Ai5CWHQ"
+# ===== التوكن من المتغيرات البيئية =====
+TOKEN = os.environ.get("TOKEN", "YOUR_BOT_TOKEN_HERE")
 API = f"https://api.telegram.org/bot{TOKEN}"
 offset = 0
 urls = {}
@@ -18,6 +19,21 @@ START_MSG = """👋 أهلاً بك!
 HELP_MSG = """🆘 أرسل رابط الفيديو ثم اختر الجودة أو الصوت."""
 ABOUT_MSG = """🤖 بوت التحميل v5\n🎥 144p-1080p | 🎵 MP3\n👨‍💻 @B43lB"""
 SETTINGS_MSG = """⚙️ الجودة: 144p-1080p | الصوت: MP3"""
+
+# ===== التحقق من وجود FFmpeg =====
+def check_ffmpeg():
+    try:
+        subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+        print("✅ FFmpeg موجود")
+        return True
+    except:
+        print("❌ FFmpeg غير موجود!")
+        print("🔧 قم بتثبيته:")
+        print("  Linux: sudo apt install ffmpeg -y")
+        print("  Termux: pkg install ffmpeg -y")
+        return False
+
+check_ffmpeg()
 
 # ===== كوكيز تيك توك وبنترست =====
 COOKIES_FILE = "/tmp/dl/cookies.txt"
@@ -73,7 +89,6 @@ def download(url, quality="720", audio=False):
             r = session.get(url, headers=h, timeout=15)
             html = r.text
             
-            # البحث عن فيديو
             v = re.findall(r'"(https?://[^"]*\.mp4[^"]*)"', html)
             if v:
                 vurl = v[0].replace('\\', '')
@@ -83,7 +98,6 @@ def download(url, quality="720", audio=False):
                 if os.path.exists(path) and os.path.getsize(path) > 10000:
                     return path, "Pinterest"
             
-            # البحث عن صورة
             i = re.findall(r'"(https?://i\.pinimg\.com/originals/[^"]*\.(jpg|png)[^"]*)"', html)
             if i:
                 iurl = i[0][0].replace('\\', '')
@@ -133,6 +147,7 @@ def download(url, quality="720", audio=False):
             'preferredcodec': 'mp3',
             'preferredquality': '192'
         }]
+        opts['ffmpeg_location'] = '/usr/bin/ffmpeg'
     
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -190,7 +205,8 @@ def process(u):
                     with open(path,'rb') as f:
                         session.post(f"{API}/sendAudio", data={"chat_id":cid,"caption":f"🎵 {title}"}, files={"audio":f}, timeout=300)
                     em(cid, mid, f"✅ {title}")
-                except: em(cid, mid, "فشل")
+                except Exception as e:
+                    em(cid, mid, f"❌ فشل: {str(e)[:100]}")
                 try: os.remove(path)
                 except: pass
             else: em(cid, mid, f"❌ {title}")
@@ -217,7 +233,7 @@ def process(u):
 def run():
     global offset
     print("⚡ البوت يعمل مع كوكيز تيك توك وبنترست...")
-    print(f"🤖 التوكن: {TOKEN[:10]}...")
+    print(f"🤖 التوكن: {TOKEN[:10]}..." if TOKEN != "YOUR_BOT_TOKEN_HERE" else "⚠️ لم يتم تعيين التوكن!")
     while True:
         try:
             r = session.get(f"{API}/getUpdates", params={"offset":offset+1,"timeout":15}, timeout=20)

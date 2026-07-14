@@ -1,6 +1,13 @@
 import requests, time, os, json, hashlib, re
 import yt_dlp
 
+# استيراد حزمة الـ ffmpeg التلقائية لتصليح خطأ الـ MP3
+try:
+    import imageio_ffmpeg
+    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    FFMPEG_PATH = None
+
 # ===== التوكن الجديد =====
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 API = f"https://api.telegram.org/bot{TOKEN}"
@@ -126,6 +133,10 @@ def download(url, quality="720", audio=False):
             }
         }
     }
+    
+    # تحديد مسار الـ ffmpeg تلقائياً إذا تم العثور عليه
+    if FFMPEG_PATH:
+        opts['ffmpeg_location'] = FFMPEG_PATH
     
     if audio:
         opts['postprocessors'] = [{

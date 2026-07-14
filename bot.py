@@ -2,7 +2,7 @@ import requests, time, os, json, hashlib, re
 import yt_dlp
 
 # ===== التوكن الجديد =====
-TOKEN = "8952358620:AAGklvNQsCf_7JEE6E-ms16ILTC1Ai5CWHQ"
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 API = f"https://api.telegram.org/bot{TOKEN}"
 offset = 0
 urls = {}

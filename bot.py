@@ -1,16 +1,21 @@
 import requests, time, os, json, hashlib, re
 import yt_dlp
 
+# ==========================================
+# 🎵 تعريف وتوجيه مسار الـ ffmpeg تلقائياً
+# ==========================================
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+    # هاي الخطوة السحرية اللي تخلي النظام كله يشوف الـ ffmpeg
+    ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 except ImportError:
     FFMPEG_PATH = None
 
-import yt_dlp
-
 # ===== التوكن الجديد =====
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+
 API = f"https://api.telegram.org/bot{TOKEN}"
 offset = 0
 urls = {}

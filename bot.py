@@ -1,12 +1,14 @@
-import requests, time, os, json, hashlib, re
+import os
+import sys
+import requests
 import yt_dlp
 
-# استيراد حزمة الـ ffmpeg التلقائية لتصليح خطأ الـ MP3
-try:
-    import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-except ImportError:
-    FFMPEG_PATH = None
+# ==========================================
+# 🎵 هذا هو الكود والدليل المطلوب لتوجيه مكتبة الصوت 
+# ==========================================
+os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/app/.nixpacks/bin:" + os.environ.get("PATH", "")
+# ==========================================
+
 
 # ===== التوكن الجديد =====
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")

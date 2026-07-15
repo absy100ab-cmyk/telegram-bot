@@ -2,13 +2,13 @@ import os
 import sys
 import requests
 import yt_dlp
+import time  # 👈 ضفنا هالحلو الصغير حتى يروح الإيرور فوراً
 
 # ==========================================
 # 🎵 هذا هو الكود والدليل المطلوب لتوجيه مكتبة الصوت 
 # ==========================================
 os.environ["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/app/.nixpacks/bin:" + os.environ.get("PATH", "")
 # ==========================================
-
 
 # ===== التوكن الجديد =====
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")

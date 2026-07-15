@@ -1,4 +1,12 @@
-Import requests, time, os, json, hashlib, re
+import requests, time, os, json, hashlib, re
+import yt_dlp
+
+try:
+    import imageio_ffmpeg
+    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    FFMPEG_PATH = None
+
 import yt_dlp
 
 # ===== التوكن الجديد =====

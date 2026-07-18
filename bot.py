@@ -1,4 +1,11 @@
-import requests, time, os, json, hashlib, re
+import requests
+import time
+import os
+import json
+import hashlib
+import re
+import random
+from datetime import datetime
 import yt_dlp
 
 # ==========================================
@@ -7,7 +14,6 @@ import yt_dlp
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-    # هاي الخطوة السحرية اللي تخلي النظام كله يشوف الـ ffmpeg
     ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
     os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 except ImportError:
@@ -21,6 +27,49 @@ offset = 0
 urls = {}
 os.makedirs("/tmp/dl", exist_ok=True)
 session = requests.Session()
+
+# ===== نظام إحصائيات المستخدمين =====
+USERS_FILE = "/tmp/dl/bot_users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        except: return {}
+    return {}
+
+def save_user(chat_id, username=None):
+    users = load_users()
+    cid_str = str(chat_id)
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if cid_str not in users:
+        users[cid_str] = {
+            "first_seen": today,
+            "last_seen": today,
+            "username": username or "لا يوجد"
+        }
+    else:
+        users[cid_str]["last_seen"] = today
+        if username:
+            users[cid_str]["username"] = username
+            
+    try:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f, indent=4)
+    except: pass
+
+def get_stats_msg():
+    users = load_users()
+    total_users = len(users)
+    today = datetime.now().strftime("%Y-%m-%d")
+    active_today = sum(1 for u in users.values() if u.get("last_seen") == today)
+    
+    msg = f"📊 *إحصائيات البوت الحالية:*\n\n"
+    msg += f"👥 عدد المستخدمين الكلي: `{total_users}`\n"
+    msg += f"🔥 المستخدمين النشطين اليوم: `{active_today}`\n"
+    return msg
 
 START_MSG = """👋 أهلاً بك!
 📩 أرسل رابط الفيديو للتحميل.
@@ -140,6 +189,10 @@ def download(url, quality="720", audio=False):
         }
     }
     
+    # تمرير مسار الـ ffmpeg بدقة لتصحيح إيرور تحويل الصوت
+    if FFMPEG_PATH:
+        opts['ffmpeg_location'] = FFMPEG_PATH
+        
     if audio:
         opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
@@ -167,6 +220,10 @@ def process(u):
         cid = q["message"]["chat"]["id"]
         mid = q["message"]["message_id"]
         d = q["data"]
+        
+        # حفظ بيانات المستخدم عند ضغط الأزرار للتأكيد
+        uname = q["from"].get("username")
+        save_user(cid, uname)
         
         if d.startswith("q_"):
             _, key, quality = d.split("_")
@@ -212,10 +269,18 @@ def process(u):
         m = u["message"]
         cid = m["chat"]["id"]
         txt = m["text"].strip()
+        uname = m["from"].get("username")
+        
+        # تسجيل المستخدم تلقائياً فور إرسال أي رسالة للبوت
+        save_user(cid, uname)
+        
         if txt == "/start": sm(cid, START_MSG)
         elif txt == "/help": sm(cid, HELP_MSG)
         elif txt == "/about": sm(cid, ABOUT_MSG)
         elif txt == "/settings": sm(cid, SETTINGS_MSG)
+        elif txt == "/stats": 
+            # أمر عرض الإحصائيات
+            sm(cid, get_stats_msg())
         elif txt.startswith("http"):
             key = hashlib.md5(txt.encode()).hexdigest()[:8]
             urls[key] = txt
@@ -240,6 +305,4 @@ def run():
         except: time.sleep(3)
 
 if __name__ == "__main__":
-    # إضافة random للاستخدام
-    import random
     run()

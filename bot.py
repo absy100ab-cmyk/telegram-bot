@@ -102,6 +102,7 @@ COOKIES_CONTENT = """# Netscape HTTP Cookie File
 .youtube.com	TRUE	/	TRUE	0	CONSENT	YES+cb
 .youtube.com	TRUE	/	TRUE	1735689600	VISITOR_INFO1_LIVE	visitor_token_abc
 .youtube.com	TRUE	/	TRUE	1735689600	PREF	pref_token_xyz
+.youtube.com	TRUE	/	TRUE	0	__Secure-1PSIDTS	sidts-CjQBPWEu2TCSWo8AM1JOit4FjQvoT7wt3yUUfzXc8g0Vpublr5fjv7lHM7irDunLppPO4MaEEAA
 """
 
 with open(COOKIES_FILE, 'w') as f:

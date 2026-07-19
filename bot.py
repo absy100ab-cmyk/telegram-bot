@@ -7,6 +7,7 @@ import re
 import random
 from datetime import datetime
 import yt_dlp
+from middleware import is_subscribed, CHANNEL_ID
 
 # ==========================================
 # 🎵 تعريف وتوجيه مسار الـ ffmpeg تلقائياً

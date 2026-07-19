@@ -226,7 +226,6 @@ def process(u):
         
         # 1. فحص الاشتراك الإجباري عند ضغط الأزرار الشفافة
         if not is_subscribed(uid, TOKEN):
-            clean_channel = CHANNEL_ID.replace('@', '') if CHANNEL_ID else 'GGBOUFON'
             ac(q["id"], "❌ يجب عليك الاشتراك أولاً!", alert=True)
             return
 
@@ -284,7 +283,6 @@ def process(u):
         # 2. فحص الاشتراك الإجباري عند إرسال الرسائل النصية والروابط
         if not is_subscribed(uid, TOKEN):
             clean_channel = CHANNEL_ID.replace('@', '') if CHANNEL_ID else 'GGBOUFON'
-            # زر شفاف يوديه للقناة مباشرة
             kb = json.dumps({"inline_keyboard": [[{"text": "📢 اضغط هنا للاشتراك بالقناة", "url": f"https://t.me/{clean_channel}"}]]})
             sm(cid, "⚠️ *عذراً عزيزي، يجب عليك الاشتراك في القناة أولاً لاستخدام البوت!*", kb)
             return

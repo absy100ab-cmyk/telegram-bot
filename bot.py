@@ -222,7 +222,14 @@ def process(u):
         cid = q["message"]["chat"]["id"]
         mid = q["message"]["message_id"]
         d = q["data"]
+        uid = q["from"]["id"]
         
+        # 1. فحص الاشتراك الإجباري عند ضغط الأزرار الشفافة
+        if not is_subscribed(uid, TOKEN):
+            clean_channel = CHANNEL_ID.replace('@', '') if CHANNEL_ID else 'GGBOUFON'
+            ac(q["id"], "❌ يجب عليك الاشتراك أولاً!", alert=True)
+            return
+
         # حفظ بيانات المستخدم عند ضغط الأزرار للتأكيد
         uname = q["from"].get("username")
         save_user(cid, uname)
@@ -271,8 +278,17 @@ def process(u):
         m = u["message"]
         cid = m["chat"]["id"]
         txt = m["text"].strip()
-        uname = m["from"].get("username")
+        uname = m["from"].get("username"]
+        uid = m["from"]["id"]
         
+        # 2. فحص الاشتراك الإجباري عند إرسال الرسائل النصية والروابط
+        if not is_subscribed(uid, TOKEN):
+            clean_channel = CHANNEL_ID.replace('@', '') if CHANNEL_ID else 'GGBOUFON'
+            # زر شفاف يوديه للقناة مباشرة
+            kb = json.dumps({"inline_keyboard": [[{"text": "📢 اضغط هنا للاشتراك بالقناة", "url": f"https://t.me/{clean_channel}"}]]})
+            sm(cid, "⚠️ *عذراً عزيزي، يجب عليك الاشتراك في القناة أولاً لاستخدام البوت!*", kb)
+            return
+
         # تسجيل المستخدم تلقائياً فور إرسال أي رسالة للبوت
         save_user(cid, uname)
         

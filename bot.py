@@ -72,6 +72,7 @@ def get_stats_msg():
     msg += f"🔥 المستخدمين النشطين اليوم: `{active_today}`\n"
     return msg
 
+# ===== النص المنظف لرسالة الترحيب =====
 START_MSG = """👋 أهلاً بك!
 📩 أرسل رابط الفيديو للتحميل.
 🎥 اختر الجودة أو 🎵 صوت MP3.
@@ -95,9 +96,9 @@ COOKIES_CONTENT = """# Netscape HTTP Cookie File
 # Pinterest Cookies
 .pinterest.com	TRUE	/	TRUE	1735689600	csrftoken	csrf_token_abc123
 .pinterest.com	TRUE	/	TRUE	1735689600	sessionid	session_xyz789
-.pinterest.com	TRUE	/	TRUE	1735689600	_ir	ir_token_123
-.pinterest.com	TRUE	/	TRUE	1735689600	_pinterest_sess	sess_data_abc
-.pinterest.com	TRUE	/	TRUE	1735689600	_ga	GA1.2.123456789
+.pinterest.com	TRUE	/	TRUE	_ir	ir_token_123
+.pinterest.com	TRUE	/	TRUE	_pinterest_sess	sess_data_abc
+.pinterest.com	TRUE	/	TRUE	_ga	GA1.2.123456789
 
 # YouTube Cookies
 .youtube.com	TRUE	/	TRUE	0	CONSENT	YES+cb
